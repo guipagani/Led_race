@@ -1,284 +1,278 @@
 #include <Adafruit_NeoPixel.h>
 
-// Configurações da fita
-#define PINO_FITA 6
-#define NUM_LEDS 300
+// === Fitas ===
+#define PINO_FITA1 6
+#define NUM_LEDS1 330
+#define PINO_FITA2 7
+#define NUM_LEDS2 130
 
-Adafruit_NeoPixel fita = Adafruit_NeoPixel(NUM_LEDS, PINO_FITA, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel fita1(NUM_LEDS1, PINO_FITA1, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel fita2(NUM_LEDS2, PINO_FITA2, NEO_GRB + NEO_KHZ800);
 
-// Botões dos jogadores
-#define BOTAO_JOGADOR1 A1  // Azul
-#define BOTAO_JOGADOR2 A2  // Vermelho
-#define BOTAO_JOGADOR3 A3  // Amarelo
-#define BOTAO_JOGADOR4 A4  // Verde
+// === Botões ===
+#define BOTAO_J1 A1
+#define BOTAO_J2 A4
+#define BOTAO_J3 A3
+#define BOTAO_J4 A2
 
-// Posições e voltas dos jogadores
-int posicaoJogador1 = 0;
-int posicaoJogador2 = 0;
-int posicaoJogador3 = 0;
-int posicaoJogador4 = 0;
+// === Jogadores ===
+int posJ[4] = {0, 0, 0, 0};
+int voltas[4] = {0, 0, 0, 0};
+bool ativo[4] = {false, false, false, false};
 
-int voltasJogador1 = 0;
-int voltasJogador2 = 0;
-int voltasJogador3 = 0;
-int voltasJogador4 = 0;
+const int TOTAL_VOLTAS = 2;
 
-const int TOTAL_VOLTAS = 3;
-
-// Ativação dos jogadores
-bool ativoJogador1 = false;
-bool ativoJogador2 = false;
-bool ativoJogador3 = false;
-bool ativoJogador4 = false;
-
-// Estados dos botões
-int estadoBotao1 = HIGH;
-int estadoBotao2 = HIGH;
-int estadoBotao3 = HIGH;
-int estadoBotao4 = HIGH;
-
-int ultimoEstadoBotao1 = HIGH;
-int ultimoEstadoBotao2 = HIGH;
-int ultimoEstadoBotao3 = HIGH;
-int ultimoEstadoBotao4 = HIGH;
-
-unsigned long ultimoDebounceTempo1 = 0;
-unsigned long ultimoDebounceTempo2 = 0;
-unsigned long ultimoDebounceTempo3 = 0;
-unsigned long ultimoDebounceTempo4 = 0;
-
-const unsigned long debounceDelay = 2;
-
-// Controle de vitória
+// === Controle de vitória ===
 bool venceu = false;
-int jogadorVencedor = 0;
-unsigned long tempoUltimoPisca = 0;
+int vencedor = -1;
+unsigned long tempoPisca = 0;
 bool estadoPisca = false;
-int contadorPisca = 0;
+int contaPisca = 0;
+bool esperando = true;
 
-// Controle de estado geral
-bool esperandoInicio = true;
+// === Debounce ===
+int estadoBotao[4] = {HIGH, HIGH, HIGH, HIGH};
+int ultimoEstadoBotao[4] = {HIGH, HIGH, HIGH, HIGH};
+unsigned long ultimoTempoBotao[4] = {0, 0, 0, 0};
+const unsigned long debounceDelay = 5;
+
+// === Rainbow ===
+int offsetRainbow = 0;
 
 void setup() {
-  fita.begin();
-  fita.clear();
-  desenharFaixaRosa();
-  fita.show();
+  fita1.begin();
+  fita2.begin();
+  fita1.clear();
+  fita2.clear();
+  pintarFita2();
+  fita1.show();
+  fita2.show();
 
-  pinMode(BOTAO_JOGADOR1, INPUT_PULLUP);
-  pinMode(BOTAO_JOGADOR2, INPUT_PULLUP);
-  pinMode(BOTAO_JOGADOR3, INPUT_PULLUP);
-  pinMode(BOTAO_JOGADOR4, INPUT_PULLUP);
+  pinMode(BOTAO_J1, INPUT_PULLUP);
+  pinMode(BOTAO_J2, INPUT_PULLUP);
+  pinMode(BOTAO_J3, INPUT_PULLUP);
+  pinMode(BOTAO_J4, INPUT_PULLUP);
 
   Serial.begin(9600);
+
+  // Animação inicial
+  fita1.fill(fita1.Color(255, 255, 255));
+  fita2.fill(fita2.Color(255, 255, 255));
+  fita1.show();
+  fita2.show();
+  delay(500);
+  fita1.clear();
+  fita2.clear();
+  pintarFita2();
+  fita1.show();
+  fita2.show();
 }
 
 void loop() {
-  desenharFaixaRosa(); // Faixa rosa sempre acesa
+  pintarFita2(); // Mantém as marcações da fita2 sempre acesas
 
-  int leitura1 = digitalRead(BOTAO_JOGADOR1);
-  int leitura2 = digitalRead(BOTAO_JOGADOR2);
-  int leitura3 = digitalRead(BOTAO_JOGADOR3);
-  int leitura4 = digitalRead(BOTAO_JOGADOR4);
+  int botoes[4] = {
+    digitalRead(BOTAO_J1),
+    digitalRead(BOTAO_J2),
+    digitalRead(BOTAO_J3),
+    digitalRead(BOTAO_J4)
+  };
 
-  // Estado aguardando início
-  if (esperandoInicio) {
-    if (leitura1 == LOW || leitura2 == LOW || leitura3 == LOW || leitura4 == LOW) {
-      esperandoInicio = false;
+  if (esperando) {
+    efeitoRainbow();
+    if (botoes[0] == LOW || botoes[1] == LOW || botoes[2] == LOW || botoes[3] == LOW) {
+      esperando = false;
       semaforo();
-      fita.clear();
-      desenharFaixaRosa();
-      fita.show();
+      fita1.clear();
+      fita1.show();
     }
+    delay(15);
     return;
   }
 
   if (venceu) {
-    piscarVencedor();
+    piscar();
     return;
   }
 
-  // Processa botões dos jogadores
-  processaBotao(leitura1, estadoBotao1, ultimoEstadoBotao1, ultimoDebounceTempo1, ativoJogador1, 1);
-  processaBotao(leitura2, estadoBotao2, ultimoEstadoBotao2, ultimoDebounceTempo2, ativoJogador2, 2);
-  processaBotao(leitura3, estadoBotao3, ultimoEstadoBotao3, ultimoDebounceTempo3, ativoJogador3, 3);
-  processaBotao(leitura4, estadoBotao4, ultimoEstadoBotao4, ultimoDebounceTempo4, ativoJogador4, 4);
+  for (int i = 0; i < 4; i++) {
+    processaBotao(botoes[i], i);
+  }
+
+  atualizarFitas();
 }
 
-void processaBotao(int leitura, int &estado, int &ultimoEstado, unsigned long &ultimoTempo, bool &ativo, int jogador) {
-  if (leitura != ultimoEstado) {
-    ultimoTempo = millis();
+void processaBotao(int leitura, int j) {
+  if (leitura != ultimoEstadoBotao[j]) {
+    ultimoTempoBotao[j] = millis();
   }
-  if ((millis() - ultimoTempo) > debounceDelay) {
-    if (leitura == LOW && estado == HIGH) {
-      if (!ativo) ativo = true;
-      avancarJogador(jogador);
-      atualizarFita();
+  if (millis() - ultimoTempoBotao[j] > debounceDelay) {
+    if (leitura == LOW && estadoBotao[j] == HIGH) {
+      if (!ativo[j]) ativo[j] = true;
+      avancar(j);
     }
-    estado = leitura;
+    estadoBotao[j] = leitura;
   }
-  ultimoEstado = leitura;
+  ultimoEstadoBotao[j] = leitura;
 }
 
-void avancarJogador(int jogador) {
-  int* posicao;
-  int* voltas;
+void avancar(int j) {
+  posJ[j] += 5;
+  if (posJ[j] < NUM_LEDS1) return;
+  if (posJ[j] < NUM_LEDS1 + NUM_LEDS2) return;
 
-  switch (jogador) {
-    case 1: posicao = &posicaoJogador1; voltas = &voltasJogador1; break;
-    case 2: posicao = &posicaoJogador2; voltas = &voltasJogador2; break;
-    case 3: posicao = &posicaoJogador3; voltas = &voltasJogador3; break;
-    case 4: posicao = &posicaoJogador4; voltas = &voltasJogador4; break;
-  }
+  posJ[j] -= (NUM_LEDS1 + NUM_LEDS2);
+  voltas[j]++;
 
-  *posicao += 5;
-
-  // Pular a faixa rosa entre 140 e 160
-  if (*posicao > 139 && *posicao < 161) {
-    *posicao = 161;
-  }
-
-  if (*posicao >= NUM_LEDS) {
-    *posicao -= NUM_LEDS;
-    (*voltas)++;
-  }
-
-  if (*voltas >= TOTAL_VOLTAS) {
-    iniciarVitoria(jogador);
+  if (voltas[j] >= TOTAL_VOLTAS) {
+    venceu = true;
+    vencedor = j;
+    tempoPisca = millis();
+    contaPisca = 0;
+    estadoPisca = false;
+    Serial.print("Jogador ");
+    Serial.print(j + 1);
+    Serial.println(" venceu!");
   }
 }
 
-void atualizarFita() {
-  fita.clear();
+void atualizarFitas() {
+  fita1.clear();
+  fita2.clear();
+  pintarFita2(); // Mantém as áreas coloridas na fita2
 
-  if (ativoJogador1) desenharRastro(posicaoJogador1, 0, 0, 255);      // Azul
-  if (ativoJogador2) desenharRastro(posicaoJogador2, 255, 0, 0);      // Vermelho
-  if (ativoJogador3) desenharRastro(posicaoJogador3, 255, 150, 0);    // Amarelo (laranja)
-  if (ativoJogador4) desenharRastro(posicaoJogador4, 0, 255, 0);      // Verde
+  byte cores[4][3] = {
+    {0, 255, 0},     // Verde
+    {0, 0, 255},     // Azul
+    {255, 150, 0},   // Amarelo
+    {255, 0, 0}      // Vermelho
+  };
 
-  desenharFaixaRosa(); // Desenha faixa rosa sempre após limpar e atualizar corredores
+  for (int i = 0; i < 4; i++) {
+    if (ativo[i])
+      desenharRastro(posJ[i], cores[i][0], cores[i][1], cores[i][2]);
+  }
 
-  fita.show();
+  fita1.show();
+  fita2.show();
 }
 
-void desenharRastro(int posicao, byte r, byte g, byte b) {
+void desenharRastro(int pos, byte r, byte g, byte b) {
+  if (pos < NUM_LEDS1) {
+    desenharFita(fita1, NUM_LEDS1, pos, r, g, b);
+  } else {
+    desenharFita(fita2, NUM_LEDS2, pos - NUM_LEDS1, r, g, b);
+  }
+}
+
+void desenharFita(Adafruit_NeoPixel &fita, int num, int pos, byte r, byte g, byte b) {
   for (int i = 0; i < 5; i++) {
-    int pixel = (posicao + i) % NUM_LEDS;
-    adicionarCor(pixel, r, g, b);
+    int p = (pos + i) % num;
+    adicionarCor(fita, p, r, g, b);
   }
-
   for (int i = 1; i <= 5; i++) {
-    int pixel = posicao - i;
-    if (pixel < 0) pixel += NUM_LEDS;
-
-    float fatorBrilho = 1.0 - (float)i / 6.0;
-    byte r_dim = (byte)(r * fatorBrilho);
-    byte g_dim = (byte)(g * fatorBrilho);
-    byte b_dim = (byte)(b * fatorBrilho);
-    adicionarCor(pixel, r_dim, g_dim, b_dim);
+    int p = pos - i;
+    if (p < 0) p += num;
+    float fator = 1.0 - (float)i / 6.0;
+    adicionarCor(fita, p, r * fator, g * fator, b * fator);
   }
 }
 
-void adicionarCor(int pixel, byte r, byte g, byte b) {
-  uint32_t corAtual = fita.getPixelColor(pixel);
-
-  byte r1 = (corAtual >> 16) & 0xFF;
-  byte g1 = (corAtual >> 8) & 0xFF;
-  byte b1 = corAtual & 0xFF;
-
-  byte rFinal = min(r1 + r, 255);
-  byte gFinal = min(g1 + g, 255);
-  byte bFinal = min(b1 + b, 255);
-
-  fita.setPixelColor(pixel, fita.Color(rFinal, gFinal, bFinal));
+void adicionarCor(Adafruit_NeoPixel &fita, int p, byte r, byte g, byte b) {
+  uint32_t c = fita.getPixelColor(p);
+  byte r1 = (c >> 16) & 0xFF;
+  byte g1 = (c >> 8) & 0xFF;
+  byte b1 = c & 0xFF;
+  fita.setPixelColor(p, fita.Color(min(r + r1, 255), min(g + g1, 255), min(b + b1, 255)));
 }
 
-void desenharFaixaRosa() {
-  // Faixa rosa entre os LEDs 140 e 160
-  for (int i = 140; i <= 160; i++) {
-    fita.setPixelColor(i, fita.Color(255,7,8)); // Rosa
+void pintarFita2() {
+  for (int i = 0; i < NUM_LEDS2; i++) {
+    int led = NUM_LEDS2 - 1 - i;
+    if (led >= 50 && led <= 70) {
+      fita2.setPixelColor(led, fita2.Color(0, 0, 255));  // Azul
+    } else if (led >= 105 && led <= 120) {
+      fita2.setPixelColor(led, fita2.Color(0, 255, 0));  // Verde
+    } else {
+      fita2.setPixelColor(led, fita2.Color(255, 1, 7));  // Rosa
+    }
   }
 }
 
-void iniciarVitoria(int jogador) {
-  venceu = true;
-  jogadorVencedor = jogador;
-  tempoUltimoPisca = millis();
-  contadorPisca = 0;
-  estadoPisca = false;
-  Serial.print("Jogador ");
-  Serial.print(jogador);
-  Serial.println(" venceu!");
-}
-
-void piscarVencedor() {
-  unsigned long agora = millis();
-  if (agora - tempoUltimoPisca >= 300) {
-    tempoUltimoPisca = agora;
+void piscar() {
+  if (millis() - tempoPisca >= 150) {
+    tempoPisca = millis();
     estadoPisca = !estadoPisca;
 
-    if (estadoPisca) {
-      uint32_t cor;
-      switch (jogadorVencedor) {
-        case 1: cor = fita.Color(0, 0, 255); break;        // Azul
-        case 2: cor = fita.Color(255, 0, 0); break;        // Vermelho
-        case 3: cor = fita.Color(255, 150, 0); break;      // Amarelo
-        case 4: cor = fita.Color(0, 255, 0); break;        // Verde
-      }
-      for (int i = 0; i < NUM_LEDS; i++) {
-        fita.setPixelColor(i, cor);
-      }
-    } else {
-      fita.clear();
-      desenharFaixaRosa();  // Mantém a faixa rosa acesa durante o piscar
-    }
-    fita.show();
+    byte cores[4][3] = {
+      {0, 255, 0},
+      {0, 0, 255},
+      {255, 150, 0},
+      {255, 0, 0}
+    };
 
-    if (!estadoPisca) {
-      contadorPisca++;
-      if (contadorPisca >= 5) {
-        venceu = false;
-        resetarCorrida();
+    if (estadoPisca) {
+      fita1.fill(fita1.Color(cores[vencedor][0], cores[vencedor][1], cores[vencedor][2]));
+      fita2.fill(fita2.Color(cores[vencedor][0], cores[vencedor][1], cores[vencedor][2]));
+    } else {
+      fita1.clear();
+      pintarFita2();
+    }
+
+    fita1.show();
+    fita2.show();
+
+    if (estadoPisca) contaPisca++;
+    if (contaPisca > 10) {
+      venceu = false;
+      esperando = true;
+      for (int i = 0; i < 4; i++) {
+        posJ[i] = 0;
+        voltas[i] = 0;
+        ativo[i] = false;
       }
+      fita1.clear();
+      fita2.clear();
+      pintarFita2();
+      fita1.show();
+      fita2.show();
     }
   }
 }
 
-void resetarCorrida() {
-  posicaoJogador1 = posicaoJogador2 = posicaoJogador3 = posicaoJogador4 = 0;
-  voltasJogador1 = voltasJogador2 = voltasJogador3 = voltasJogador4 = 0;
-  ativoJogador1 = ativoJogador2 = ativoJogador3 = ativoJogador4 = false;
-  esperandoInicio = true;
-  fita.clear();
-  desenharFaixaRosa();  // Faixa rosa acesa após reset
-  fita.show();
-}
+void efeitoRainbow() {
+  offsetRainbow = (offsetRainbow + 2) % 256;
+  int arco = NUM_LEDS1 / 3;
+  fita1.clear();
 
-void pintarForaFaixaRosa(uint32_t cor) {
-  // Pinta LEDs de 0 a 139
-  fita.fill(cor, 0, 140);
-  // Pinta LEDs de 161 a 299 (total 139 LEDs)
-  fita.fill(cor, 161, NUM_LEDS - 161);
+  for (int a = 0; a < 3; a++) {
+    for (int i = 0; i < arco; i++) {
+      int led = a * arco + i;
+      int hue = (i * 256 / arco + offsetRainbow) & 255;
+      uint32_t cor = fita1.ColorHSV(hue * 256);
+      fita1.setPixelColor(led, cor);
+    }
+  }
+  fita1.show();
 }
 
 void semaforo() {
-  pintarForaFaixaRosa(fita.Color(255, 0, 0));    // Vermelho
-  desenharFaixaRosa();
-  fita.show();
-  delay(1030);
+  // Vermelho
+  fita1.fill(fita1.Color(255, 0, 0));
+  fita1.show();
+  delay(800);
 
-  pintarForaFaixaRosa(fita.Color(255, 150, 0));  // Amarelo
-  desenharFaixaRosa();
-  fita.show();
-  delay(1030);
+  // Amarelo
+  fita1.fill(fita1.Color(255, 150, 0));
+  fita1.show();
+  delay(800);
 
-  pintarForaFaixaRosa(fita.Color(0, 255, 0));    // Verde
-  desenharFaixaRosa();
-  fita.show();
-  delay(1030);
+  // Verde (2 segundos)
+  fita1.fill(fita1.Color(0, 255, 0));
+  fita1.show();
+  delay(2000);
 
-  // Limpa fora faixa rosa e desenha faixa rosa no final
-  fita.clear();
-  desenharFaixaRosa();
-  fita.show();
+  // Apagar
+  fita1.clear();
+  fita1.show();
 }
